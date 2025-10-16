@@ -2,3 +2,5 @@
 */.ipynb_checkpoints/*
 profile_default/
 ipython_config.py
+venv/
+__pycache__
