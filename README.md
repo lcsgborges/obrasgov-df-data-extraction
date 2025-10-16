@@ -1,9 +1,20 @@
-# Teste avaliativo para vaga de bolsista em engenharia/análise de dados
+# Teste Avaliativo - Engenharia/Análise de Dados LabLivre
 
-Todo o código foi desenvolvido usando o jupyter notebook. O código principal se encontra no arquivo main.ipynb
+## Descrição
 
-Os dados foram carregados via request na API disponibilizada no PDF da atividade e salvos em três formatos diferentes dentro da pasta data/:
-- json
-- csv
-- pkl
+Análise de dados de projetos de investimento do Distrito Federal (DF) extraídos da API ObrasGov.br.
 
+## Como executar
+
+```bash
+pip install -r requirements.txt
+jupyter notebook main.ipynb
+```
+
+Ou abra o `main.ipynb` com Jupyter Notebook.
+
+## Autor
+
+> **Lucas Borges**
+> GitHub: [@lcsgborges](https://github.com/lcsgborges)
+> *Teste avaliativo para vaga de bolsista em engenharia/análise de dados - LabLivre*
