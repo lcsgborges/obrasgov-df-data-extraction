@@ -632,8 +632,7 @@ with tab5:
         height=600
     )
     
-    # Estatísticas descritivas
-    st.subheader("Estatísticas Descritivas")
+    st.subheader("Estatísticas Numéricas")
     
     colunas_numericas = df_filtrado.select_dtypes(include=[np.number]).columns.tolist()
     
