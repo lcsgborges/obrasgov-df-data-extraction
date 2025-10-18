@@ -1,23 +1,75 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import sqlite3
 from datetime import datetime
 import plotly.express as px
+import plotly.graph_objects as go
 
+# Configuração da página
 st.set_page_config(
-    page_title="Projetos DF - ObrasGov.br",
+    page_title="Dashboard - Atividade LabLivre",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Cache para carregar dados
+# Estilo customizado
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #2c3e50;
+        text-align: center;
+        padding: 1rem 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Cache para carregar dados do banco
 @st.cache_data
-def load_data():
-    """Carrega dados do banco SQLite"""
+def load_data_from_db():
     try:
         conn = sqlite3.connect('data/projetosDF.db')
-        df = pd.read_sql_query("SELECT * FROM projetos", conn)
+        
+        # Query principal
+        query = """
+        SELECT 
+            idUnico,
+            nome,
+            cep,
+            endereco,
+            descricao,
+            funcaoSocial,
+            metaGlobal,
+            dataInicialPrevista,
+            dataFinalPrevista,
+            dataInicialEfetiva,
+            dataFinalEfetiva,
+            dataCadastro,
+            especie,
+            natureza,
+            situacao,
+            uf,
+            quantidadeEmpregosGerados,
+            descricaoPopulacaoBeneficiada,
+            populacaoBeneficiada,
+            observacoesPertinentes,
+            ehModeladaPorBim,
+            dataSituacao,
+            nomeTomadores,
+            nomeExecutores,
+            nomeRepassadores,
+            descricaoEixos,
+            descricaoTipos,
+            descricaoSubtipos,
+            valorInvestimentoPrevistoFontesderecurso
+        FROM projetos
+        """
+        
+        df = pd.read_sql_query(query, conn)
         conn.close()
         
         # Converter colunas de data
@@ -28,19 +80,29 @@ def load_data():
                 df[col] = pd.to_datetime(df[col], errors='coerce')
         
         # Converter colunas numéricas
-        df['quantidadeEmpregosGerados'] = pd.to_numeric(df['quantidadeEmpregosGerados'], errors='coerce')
-        df['populacaoBeneficiada'] = pd.to_numeric(df['populacaoBeneficiada'], errors='coerce')
+        numeric_cols = ['quantidadeEmpregosGerados', 'populacaoBeneficiada', 
+                       'valorInvestimentoPrevistoFontesderecurso']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        st.error(f"Erro ao carregar dados do banco: {e}")
         return pd.DataFrame()
 
 # Carregar dados
-df = load_data()
+df = load_data_from_db()
 
-# Sidebar - Filtros
-st.sidebar.title("Filtros")
+# Verificar se os dados foram carregados
+if df.empty:
+    st.error("Nenhum dado encontrado no banco de dados!")
+    st.stop()
+
+# =======================
+# SIDEBAR - FILTROS
+# =======================
+st.sidebar.header("Filtros")
 
 # Filtro por situação
 situacoes = ['Todos'] + sorted(df['situacao'].dropna().unique().tolist())
@@ -54,27 +116,24 @@ especie_selecionada = st.sidebar.selectbox("Espécie", especies)
 naturezas = ['Todos'] + sorted(df['natureza'].dropna().unique().tolist())
 natureza_selecionada = st.sidebar.selectbox("Natureza", naturezas)
 
-# Filtro de data de cadastro
+# Filtro por data de cadastro
 st.sidebar.subheader("Período de Cadastro")
-df_com_data = df[df['dataCadastro'].notna()].copy()
-if len(df_com_data) > 0:
-    min_date = df_com_data['dataCadastro'].min().date()
-    max_date = df_com_data['dataCadastro'].max().date()
+if df['dataCadastro'].notna().any():
+    data_min = df['dataCadastro'].min()
+    data_max = df['dataCadastro'].max()
     
-    data_inicio = st.sidebar.date_input("Data Inicial", min_date, min_value=min_date, max_value=max_date)
-    data_fim = st.sidebar.date_input("Data Final", max_date, min_value=min_date, max_value=max_date)
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        data_inicio = st.date_input("De", value=data_min, min_value=data_min, max_value=data_max)
+    with col2:
+        data_fim = st.date_input("Até", value=data_max, min_value=data_min, max_value=data_max)
 else:
     data_inicio = None
     data_fim = None
 
-# Filtro por empregos/população
-st.sidebar.subheader("Impacto Social")
-tem_emprego = st.sidebar.checkbox("Apenas com dados de empregos", False)
-tem_populacao = st.sidebar.checkbox("Apenas com dados de população", False)
-
-# Busca por nome
-st.sidebar.subheader("Busca")
-busca_nome = st.sidebar.text_input("Buscar por nome do projeto")
+# Filtro por busca de texto
+st.sidebar.subheader("Busca por Nome")
+busca_nome = st.sidebar.text_input("Digite o nome do projeto")
 
 # Aplicar filtros
 df_filtrado = df.copy()
@@ -90,60 +149,84 @@ if natureza_selecionada != 'Todos':
 
 if data_inicio and data_fim:
     df_filtrado = df_filtrado[
-        (df_filtrado['dataCadastro'].dt.date >= data_inicio) & 
+        (df_filtrado['dataCadastro'].dt.date >= data_inicio) &
         (df_filtrado['dataCadastro'].dt.date <= data_fim)
     ]
 
-if tem_emprego:
-    df_filtrado = df_filtrado[df_filtrado['quantidadeEmpregosGerados'] > 0]
-
-if tem_populacao:
-    df_filtrado = df_filtrado[df_filtrado['populacaoBeneficiada'] > 0]
-
 if busca_nome:
-    df_filtrado = df_filtrado[df_filtrado['nome'].str.contains(busca_nome, case=False, na=False)]
+    df_filtrado = df_filtrado[
+        df_filtrado['nome'].str.contains(busca_nome, case=False, na=False)
+    ]
 
-# Header principal
-st.markdown('<p class="main-header">Análise de Projetos de Investimento - Distrito Federal</p>', unsafe_allow_html=True)
+# =======================
+# HEADER
+# =======================
+st.markdown('<h1 class="main-header">Dashboard de Projetos - Distrito Federal</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
-# Métricas principais
-col1, col2, col3, col4 = st.columns(4)
+# =======================
+# MÉTRICAS PRINCIPAIS
+# =======================
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.metric("Total de Projetos", f"{len(df_filtrado):,}".replace(',', '.'))
+    st.metric(
+        label="Total de Projetos",
+        value=f"{len(df_filtrado):,}",
+        delta=f"{len(df_filtrado) - len(df):,}" if len(df_filtrado) != len(df) else None
+    )
 
 with col2:
-    total_empregos = df_filtrado['quantidadeEmpregosGerados'].sum()
-    st.metric("Empregos Gerados", f"{total_empregos:,.0f}".replace(',', '.'))
+    valor_total = df_filtrado['valorInvestimentoPrevistoFontesderecurso'].sum()
+    st.metric(
+        label="Investimento Total",
+        value=f"R$ {valor_total/1e9:.2f}B" if valor_total >= 1e9 else f"R$ {valor_total/1e6:.1f}M"
+    )
 
 with col3:
-    total_populacao = df_filtrado['populacaoBeneficiada'].sum()
-    st.metric("População Beneficiada", f"{total_populacao:,.0f}".replace(',', '.'))
+    empregos_total = df_filtrado['quantidadeEmpregosGerados'].sum()
+    st.metric(
+        label="Empregos Gerados",
+        value=f"{int(empregos_total):,}"
+    )
 
 with col4:
-    projetos_execucao = len(df_filtrado[df_filtrado['situacao'].str.contains('execução', case=False, na=False)])
-    st.metric("Em Execução", projetos_execucao)
+    pop_total = df_filtrado['populacaoBeneficiada'].sum()
+    st.metric(
+        label="População Beneficiada",
+        value=f"{int(pop_total/1e6):.1f}M" if pop_total >= 1e6 else f"{int(pop_total/1e3)}K"
+    )
+
+with col5:
+    projetos_execucao = len(df_filtrado[df_filtrado['situacao'] == 'Em Execução'])
+    st.metric(
+        label="Em Execução",
+        value=f"{projetos_execucao}"
+    )
 
 st.markdown("---")
 
-# Tabs principais
+# =======================
+# TABS
+# =======================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Visão Geral", 
-    "Impacto Social", 
+    "Visão Geral",
     "Análise Temporal",
-    "Detalhamento",
+    "Análise Financeira",
+    "Detalhes dos Projetos",
     "Dados Brutos"
 ])
 
-# TAB 1: Visão Geral
+# =======================
+# TAB 1: VISÃO GERAL
+# =======================
 with tab1:
     st.header("Visão Geral dos Projetos")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Gráfico de situação
+        # Distribuição por situação
         st.subheader("Distribuição por Situação")
         if len(df_filtrado) > 0:
             situacao_counts = df_filtrado['situacao'].value_counts().reset_index()
@@ -163,10 +246,10 @@ with tab1:
             st.info("Nenhum dado disponível para exibir.")
     
     with col2:
-        # Gráfico de espécie
-        st.subheader("Top 10 Espécies")
+        # Distribuição por espécie (pizza)
+        st.subheader("Distribuição por Espécie")
         if len(df_filtrado) > 0:
-            especie_counts = df_filtrado['especie'].value_counts().head(10)
+            especie_counts = df_filtrado['especie'].value_counts()
             
             fig = px.pie(
                 values=especie_counts.values,
@@ -192,109 +275,30 @@ with tab1:
     )
     fig.update_layout(showlegend=False, height=400)
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Top 10 tipos de projetos
+    st.subheader("Top 10 Tipos de Projetos")
+    top_tipos = df_filtrado['descricaoTipos'].value_counts().head(10).reset_index()
+    top_tipos.columns = ['Tipo', 'Quantidade']
+    
+    fig = px.bar(
+        top_tipos,
+        x='Quantidade',
+        y='Tipo',
+        orientation='h',
+        color='Quantidade',
+        color_continuous_scale='Teal'
+    )
+    fig.update_layout(showlegend=False, height=400)
+    st.plotly_chart(fig, use_container_width=True)
 
-# TAB 2: Impacto Social
+# =======================
+# TAB 2: ANÁLISE TEMPORAL
+# =======================
 with tab2:
-    st.header("Análise de Impacto Social")
+    st.header("Análise Temporal dos Projetos")
     
-    # Filtrar projetos com dados completos
-    df_impacto = df_filtrado[
-        (df_filtrado['quantidadeEmpregosGerados'] > 0) & 
-        (df_filtrado['populacaoBeneficiada'] > 0)
-    ].copy()
-    
-    if len(df_impacto) > 0:
-        # Calcular taxa
-        df_impacto['taxa_emprego_por_100'] = (
-            df_impacto['quantidadeEmpregosGerados'] / 
-            df_impacto['populacaoBeneficiada'] * 100
-        )
-        
-        # Métricas de impacto
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric(
-                "Projetos com Dados Completos",
-                f"{len(df_impacto)}",
-                f"{len(df_impacto)/len(df_filtrado)*100:.1f}% do total"
-            )
-        
-        with col2:
-            taxa_media = df_impacto['taxa_emprego_por_100'].mean()
-            st.metric(
-                "Taxa Média Emprego/População",
-                f"{taxa_media:.2f}%",
-                "empregos por 100 pessoas"
-            )
-        
-        with col3:
-            taxa_mediana = df_impacto['taxa_emprego_por_100'].median()
-            st.metric(
-                "Taxa Mediana",
-                f"{taxa_mediana:.2f}%",
-                "empregos por 100 pessoas"
-            )
-        
-        st.markdown("---")
-        
-        # Scatter plot interativo
-        st.subheader("Relação: População Beneficiada vs Empregos Gerados")
-        
-        fig = px.scatter(
-            df_impacto,
-            x='populacaoBeneficiada',
-            y='quantidadeEmpregosGerados',
-            color='taxa_emprego_por_100',
-            size='quantidadeEmpregosGerados',
-            hover_data=['nome', 'situacao'],
-            labels={
-                'populacaoBeneficiada': 'População Beneficiada',
-                'quantidadeEmpregosGerados': 'Empregos Gerados',
-                'taxa_emprego_por_100': 'Taxa (%)'
-            },
-            color_continuous_scale='Viridis'
-        )
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Top 10 por empregos
-            st.subheader("Top 10 por Empregos Gerados")
-            top_empregos = df_impacto.nlargest(10, 'quantidadeEmpregosGerados')[
-                ['nome', 'quantidadeEmpregosGerados', 'populacaoBeneficiada', 'situacao']
-            ].reset_index(drop=True)
-            top_empregos.index = top_empregos.index + 1
-            st.dataframe(top_empregos, width='stretch')
-        
-        with col2:
-            # Top 10 por população
-            st.subheader("Top 10 por População Beneficiada")
-            top_populacao = df_impacto.nlargest(10, 'populacaoBeneficiada')[
-                ['nome', 'populacaoBeneficiada', 'quantidadeEmpregosGerados', 'situacao']
-            ].reset_index(drop=True)
-            top_populacao.index = top_populacao.index + 1
-            st.dataframe(top_populacao, width='stretch')
-        
-        # Top 10 mais eficientes
-        st.subheader("Top 10 Projetos Mais Eficientes (Taxa Emprego/População)")
-        top_eficiencia = df_impacto.nlargest(10, 'taxa_emprego_por_100')[
-            ['nome', 'quantidadeEmpregosGerados', 'populacaoBeneficiada', 
-             'taxa_emprego_por_100', 'situacao']
-        ].reset_index(drop=True)
-        top_eficiencia.index = top_eficiencia.index + 1
-        top_eficiencia['taxa_emprego_por_100'] = top_eficiencia['taxa_emprego_por_100'].round(2)
-        st.dataframe(top_eficiencia, width='stretch')
-        
-    else:
-        st.warning("Nenhum projeto com dados completos de impacto social nos filtros selecionados.")
-
-# TAB 3: Análise Temporal
-with tab3:
-    st.header("Análise Temporal")
-    
+    # Filtrar dados com datas válidas
     df_temporal = df_filtrado[df_filtrado['dataCadastro'].notna()].copy()
     
     if len(df_temporal) > 0:
@@ -351,90 +355,303 @@ with tab3:
         st.plotly_chart(fig, use_container_width=True)
         
     else:
-        st.warning("Nenhum projeto com data de cadastro nos filtros selecionados.")
+        st.info("Nenhum projeto com data de cadastro disponível para análise temporal.")
 
-# TAB 4: Detalhamento
+# =======================
+# TAB 3: ANÁLISE FINANCEIRA
+# =======================
+with tab3:
+    st.header("Análise Financeira e de Impacto")
+    
+    # Filtrar dados com valores válidos
+    df_financeiro = df_filtrado[
+        (df_filtrado['valorInvestimentoPrevistoFontesderecurso'].notna()) &
+        (df_filtrado['valorInvestimentoPrevistoFontesderecurso'] > 0)
+    ].copy()
+    
+    if len(df_financeiro) > 0:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Investimento por tipo de projeto
+            st.subheader("Investimento por Tipo de Projeto")
+            invest_tipo = df_financeiro.groupby('descricaoTipos')['valorInvestimentoPrevistoFontesderecurso'].sum()
+            invest_tipo = invest_tipo.nlargest(10).reset_index()
+            invest_tipo.columns = ['Tipo', 'Investimento']
+            invest_tipo['Investimento_M'] = invest_tipo['Investimento'] / 1e6
+            
+            fig = px.bar(
+                invest_tipo,
+                x='Investimento_M',
+                y='Tipo',
+                orientation='h',
+                labels={'Investimento_M': 'Investimento (R$ Milhões)', 'Tipo': 'Tipo de Projeto'}
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Investimento por eixo (pizza)
+            st.subheader("Investimento por Eixo")
+            invest_eixo = df_financeiro.groupby('descricaoEixos')['valorInvestimentoPrevistoFontesderecurso'].sum()
+            invest_eixo = invest_eixo.nlargest(8)
+            
+            fig = px.pie(
+                values=invest_eixo.values,
+                names=invest_eixo.index,
+                hole=0.3
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Relação: Investimento vs Empregos Gerados
+        st.subheader("Relação: Investimento vs Empregos Gerados")
+        df_impacto = df_financeiro[
+            (df_financeiro['quantidadeEmpregosGerados'].notna()) &
+            (df_financeiro['quantidadeEmpregosGerados'] > 0)
+        ].copy()
+        
+        if len(df_impacto) > 0:
+            df_impacto['invest_milhoes'] = df_impacto['valorInvestimentoPrevistoFontesderecurso'] / 1e6
+            
+            fig = px.scatter(
+                df_impacto,
+                x='invest_milhoes',
+                y='quantidadeEmpregosGerados',
+                size='quantidadeEmpregosGerados',
+                color='situacao',
+                hover_data=['nome'],
+                labels={
+                    'invest_milhoes': 'Investimento (R$ Milhões)',
+                    'quantidadeEmpregosGerados': 'Empregos Gerados',
+                    'situacao': 'Situação'
+                }
+            )
+            fig.update_layout(height=500)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Dados insuficientes para análise de impacto (empregos).")
+        
+        # Relação: Investimento vs População Beneficiada
+        st.subheader("Relação: Investimento vs População Beneficiada")
+        df_pop = df_financeiro[
+            (df_financeiro['populacaoBeneficiada'].notna()) &
+            (df_financeiro['populacaoBeneficiada'] > 0)
+        ].copy()
+        
+        if len(df_pop) > 0:
+            df_pop['invest_milhoes'] = df_pop['valorInvestimentoPrevistoFontesderecurso'] / 1e6
+            df_pop['pop_milhares'] = df_pop['populacaoBeneficiada'] / 1e3
+            
+            fig = px.scatter(
+                df_pop,
+                x='invest_milhoes',
+                y='pop_milhares',
+                size='pop_milhares',
+                color='situacao',
+                hover_data=['nome'],
+                labels={
+                    'invest_milhoes': 'Investimento (R$ Milhões)',
+                    'pop_milhares': 'População Beneficiada (Milhares)',
+                    'situacao': 'Situação'
+                }
+            )
+            fig.update_layout(height=500)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Dados insuficientes para análise de impacto (população).")
+        
+        # Top 10 projetos por investimento
+        st.subheader("Top 10 Projetos por Investimento")
+        top_invest = df_financeiro.nlargest(10, 'valorInvestimentoPrevistoFontesderecurso')[
+            ['nome', 'valorInvestimentoPrevistoFontesderecurso', 'situacao', 'descricaoTipos']
+        ].copy()
+        top_invest['Investimento (R$ Milhões)'] = top_invest['valorInvestimentoPrevistoFontesderecurso'] / 1e6
+        top_invest = top_invest.drop(columns=['valorInvestimentoPrevistoFontesderecurso'])
+        top_invest.columns = ['Projeto', 'Situação', 'Tipo', 'Investimento (R$ Milhões)']
+        
+        st.dataframe(
+            top_invest,
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Nenhum projeto com informações financeiras disponíveis.")
+
+# =======================
+# TAB 4: DETALHES DOS PROJETOS
+# =======================
 with tab4:
-    st.header("Detalhamento dos Projetos")
+    st.header("Detalhes dos Projetos")
     
-    # Seletor de projeto
-    projetos_lista = df_filtrado['nome'].unique().tolist()
-    projeto_selecionado = st.selectbox("Selecione um projeto para ver detalhes", projetos_lista)
-    
-    if projeto_selecionado:
+    # Selector de projeto
+    if len(df_filtrado) > 0:
+        projetos_nomes = df_filtrado['nome'].unique().tolist()
+        projeto_selecionado = st.selectbox(
+            "Selecione um projeto para ver detalhes:",
+            options=projetos_nomes,
+            index=0
+        )
+        
+        # Buscar detalhes do projeto
         projeto = df_filtrado[df_filtrado['nome'] == projeto_selecionado].iloc[0]
         
-        st.subheader(f"{projeto['nome']}")
+        # Layout em colunas
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown(f"### {projeto['nome']}")
+            
+            st.markdown(f"**Localização:** {projeto['endereco']}")
+            if projeto['cep']:
+                st.markdown(f"**CEP:** {projeto['cep']}")
+            
+            st.markdown("---")
+            
+            st.markdown("**Descrição:**")
+            st.write(projeto['descricao'] if pd.notna(projeto['descricao']) else "Não informado")
+            
+            if pd.notna(projeto['funcaoSocial']) and projeto['funcaoSocial'] != 'Não informado':
+                st.markdown("**Função Social:**")
+                st.write(projeto['funcaoSocial'])
+            
+            if pd.notna(projeto['metaGlobal']) and projeto['metaGlobal'] != 'Não informado':
+                st.markdown("**Meta Global:**")
+                st.write(projeto['metaGlobal'])
+        
+        with col2:
+            st.markdown("#### Informações Gerais")
+            
+            st.markdown(f"**Situação:** {projeto['situacao']}")
+            st.markdown(f"**Espécie:** {projeto['especie']}")
+            st.markdown(f"**Natureza:** {projeto['natureza']}")
+            
+            st.markdown("---")
+            
+            if pd.notna(projeto['valorInvestimentoPrevistoFontesderecurso']):
+                valor = projeto['valorInvestimentoPrevistoFontesderecurso']
+                st.metric("Investimento Previsto", f"R$ {valor/1e6:.2f}M")
+            
+            if pd.notna(projeto['quantidadeEmpregosGerados']) and projeto['quantidadeEmpregosGerados'] > 0:
+                st.metric("Empregos Gerados", f"{int(projeto['quantidadeEmpregosGerados']):,}")
+            
+            if pd.notna(projeto['populacaoBeneficiada']) and projeto['populacaoBeneficiada'] > 0:
+                pop = projeto['populacaoBeneficiada']
+                st.metric("População Beneficiada", f"{int(pop):,}")
+        
+        # Datas
+        st.markdown("---")
+        st.markdown("#### Cronograma")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if pd.notna(projeto['dataCadastro']):
+                st.markdown(f"**Cadastro:**  \n{projeto['dataCadastro'].strftime('%d/%m/%Y')}")
+        
+        with col2:
+            if pd.notna(projeto['dataInicialPrevista']):
+                st.markdown(f"**Início Previsto:**  \n{projeto['dataInicialPrevista'].strftime('%d/%m/%Y')}")
+        
+        with col3:
+            if pd.notna(projeto['dataFinalPrevista']):
+                st.markdown(f"**Fim Previsto:**  \n{projeto['dataFinalPrevista'].strftime('%d/%m/%Y')}")
+        
+        with col4:
+            if pd.notna(projeto['dataInicialEfetiva']):
+                st.markdown(f"**Início Efetivo:**  \n{projeto['dataInicialEfetiva'].strftime('%d/%m/%Y')}")
+        
+        # Atores
+        st.markdown("---")
+        st.markdown("#### Atores Envolvidos")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**Informações Básicas**")
-            st.write(f"**Situação:** {projeto['situacao']}")
-            st.write(f"**Espécie:** {projeto['especie']}")
-            st.write(f"**Natureza:** {projeto['natureza']}")
-            st.write(f"**UF:** {projeto['uf']}")
+            if pd.notna(projeto['nomeTomadores']) and projeto['nomeTomadores'] != 'Não informado':
+                st.markdown("**Tomadores:**")
+                st.write(projeto['nomeTomadores'])
         
         with col2:
-            st.markdown("**Impacto Social**")
-            empregos = projeto['quantidadeEmpregosGerados']
-            populacao = projeto['populacaoBeneficiada']
-            st.write(f"**Empregos Gerados:** {empregos:,.0f}".replace(',', '.') if pd.notna(empregos) else "Não informado")
-            st.write(f"**População Beneficiada:** {populacao:,.0f}".replace(',', '.') if pd.notna(populacao) else "Não informado")
-            
-            if pd.notna(empregos) and pd.notna(populacao) and empregos > 0 and populacao > 0:
-                taxa = (empregos / populacao * 100)
-                st.write(f"**Taxa Emprego/Pop:** {taxa:.2f}%")
+            if pd.notna(projeto['nomeExecutores']) and projeto['nomeExecutores'] != 'Não informado':
+                st.markdown("**Executores:**")
+                st.write(projeto['nomeExecutores'])
         
         with col3:
-            st.markdown("**Datas**")
-            st.write(f"**Data Cadastro:** {projeto['dataCadastro'].strftime('%d/%m/%Y') if pd.notna(projeto['dataCadastro']) else 'N/A'}")
-            st.write(f"**Início Previsto:** {projeto['dataInicialPrevista'].strftime('%d/%m/%Y') if pd.notna(projeto['dataInicialPrevista']) else 'N/A'}")
-            st.write(f"**Fim Previsto:** {projeto['dataFinalPrevista'].strftime('%d/%m/%Y') if pd.notna(projeto['dataFinalPrevista']) else 'N/A'}")
+            if pd.notna(projeto['nomeRepassadores']) and projeto['nomeRepassadores'] != 'Não informado':
+                st.markdown("**Repassadores:**")
+                st.write(projeto['nomeRepassadores'])
         
+        # Classificação
         st.markdown("---")
+        st.markdown("#### Classificação")
         
-        # Descrição e outros detalhes
-        # Nota: A coluna tem um erro de digitação no banco: 'descricaoricao'
-        if 'descricaoricao' in projeto.index and pd.notna(projeto['descricaoricao']) and projeto['descricaoricao']:
-            st.markdown("**Descrição:**")
-            st.write(projeto['descricaoricao'])
+        col1, col2, col3 = st.columns(3)
         
-        if pd.notna(projeto['funcaoSocial']) and projeto['funcaoSocial']:
-            st.markdown("**Função Social:**")
-            st.write(projeto['funcaoSocial'])
+        with col1:
+            if pd.notna(projeto['descricaoEixos']):
+                st.markdown(f"**Eixo:**  \n{projeto['descricaoEixos']}")
         
-        if pd.notna(projeto['metaGlobal']) and projeto['metaGlobal']:
-            st.markdown("**Meta Global:**")
-            st.write(projeto['metaGlobal'])
+        with col2:
+            if pd.notna(projeto['descricaoTipos']):
+                st.markdown(f"**Tipo:**  \n{projeto['descricaoTipos']}")
+        
+        with col3:
+            if pd.notna(projeto['descricaoSubtipos']):
+                st.markdown(f"**Subtipo:**  \n{projeto['descricaoSubtipos']}")
+        
+        # Observações
+        if pd.notna(projeto['observacoesPertinentes']) and projeto['observacoesPertinentes'] != 'Não informado':
+            st.markdown("---")
+            st.markdown("#### Observações")
+            st.info(projeto['observacoesPertinentes'])
+    else:
+        st.info("Nenhum projeto disponível com os filtros aplicados.")
 
-# TAB 5: Dados Brutos
+# =======================
+# TAB 5: DADOS BRUTOS
+# =======================
 with tab5:
     st.header("Dados Brutos")
     
-    st.write(f"**Total de registros:** {len(df_filtrado)}")
+    st.markdown(f"**Total de registros:** {len(df_filtrado):,}")
     
-    # Opção de download
-    csv = df_filtrado.to_csv(index=False, encoding='utf-8-sig')
+    # Opção para baixar CSV
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Download CSV",
+        label="Baixar dados filtrados em CSV",
         data=csv,
-        file_name=f"projetos_df_filtrado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        file_name=f"projetos_df_filtrado_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv"
     )
     
     # Mostrar dados
-    st.dataframe(df_filtrado, width='stretch', height=600)
+    st.dataframe(
+        df_filtrado,
+        use_container_width=True,
+        height=600
+    )
     
     # Estatísticas descritivas
     st.subheader("Estatísticas Descritivas")
-    st.write(df_filtrado.describe())
+    
+    colunas_numericas = df_filtrado.select_dtypes(include=[np.number]).columns.tolist()
+    
+    if colunas_numericas:
+        st.dataframe(
+            df_filtrado[colunas_numericas].describe(),
+            use_container_width=True
+        )
+    else:
+        st.info("Nenhuma coluna numérica disponível para estatísticas.")
 
-# Footer
+# =======================
+# FOOTER
+# =======================
 st.markdown("---")
 st.markdown("""
-    <div style='text-align: center; color: #666;'>
-        <p>Dashboard de Análise de Projetos de Investimento - Distrito Federal</p>
-        <p>Dados: ObrasGov.br | Desenvolvido por Lucas Guimarães Borges</p>
+    <div style='text-align: center; color: #666; padding: 2rem 0;'>
+        <p>Dados extraídos de: ObrasGov.br | Governo Federal</p>
+        <p style='font-size: 1rem;'>Feito por Lucas Guimarães Borges</p>
     </div>
 """, unsafe_allow_html=True)
