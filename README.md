@@ -19,5 +19,5 @@ streamlit run app.py
 ## Autor
 
 > **Lucas Guimarães Borges (222015159)**
-> GitHub: [@lcsgborges](https://github.com/lcsgborges)
+
 > *Teste avaliativo para vaga de bolsista em engenharia/análise de dados - LabLivre*
