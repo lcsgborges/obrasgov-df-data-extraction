@@ -1,10 +1,10 @@
-# Teste Avaliativo - Engenharia/Análise de Dados LabLivre
+# Extração de Dados - ObrasGov.br DF
 
 ## Descrição
 
-Análise de dados de projetos de investimento do Distrito Federal (DF) extraídos da API ObrasGov.br.
+Projeto de extração e análise inicial de dados de projetos de investimento do Distrito Federal (DF), utilizando informações obtidas a partir da API ObrasGov.br.
 
-> Observação: um servidor streamlit foi criado para visualizar melhor os dados, para executar siga as instruções abaixo
+Para visualizar o dashboard do projeto, clique [aqui](https://lcsgborges-teste-engenharia-dados-lablivre-app-jcvktp.streamlit.app/).
 
 ## Como executar
 
@@ -12,12 +12,6 @@ Análise de dados de projetos de investimento do Distrito Federal (DF) extraído
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-jupyter notebook main.ipynb # rodar todas as celulas para atualizar os dados
+jupyter notebook main.ipynb
 streamlit run app.py
 ```
-
-## Autor
-
-> **Lucas Guimarães Borges (222015159)**
-
-> *Teste avaliativo para vaga de bolsista em engenharia/análise de dados - LabLivre*
